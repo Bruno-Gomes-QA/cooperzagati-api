@@ -3,6 +3,7 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, jsonify, request
 import requests
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +16,7 @@ DB_PORT = os.getenv("port", "5432")
 GOOGLE_API_KEY = os.getenv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY")
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:3000"])
 
 def get_db_connection():
     return psycopg2.connect(
