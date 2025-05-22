@@ -1,28 +1,139 @@
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+# ♻️ Cooperzagati API
 
-# Flask + Vercel
+A API da plataforma **Cooperzagati** é responsável por toda a lógica de otimização de rotas, geração de matrizes de distância e integração com serviços externos, como o Google Maps. Criada para dar suporte à logística de coleta seletiva da cooperativa de Taboão da Serra, esta aplicação facilita a organização e execução das coletas de recicláveis.
 
-This example shows how to use Flask 3 on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+---
 
-## Demo
+## 🚀 Tecnologias
 
-https://flask-python-template.vercel.app/
+- Python 3.12
+- Flask 3
+- PostgreSQL + PostGIS
+- psycopg2
+- dotenv
+- Google Maps Directions API
+- Vercel Serverless Functions
 
-## How it Works
+---
 
-This example uses the Web Server Gateway Interface (WSGI) with Flask to enable handling requests on Vercel with Serverless Functions.
-
-## Running Locally
+## 📦 Instalação Local
 
 ```bash
-npm i -g vercel
+git clone https://github.com/seu-usuario/cooperzagati-api.git
+cd cooperzagati-api
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Crie o arquivo `.env` com as variáveis:
+
+```
+host=<SEU_HOST>
+dbname=<SEU_DB>
+user=<SEU_USUARIO>
+password=<SUA_SENHA>
+port=5432
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<SUA_CHAVE_GOOGLE>
+```
+
+Para rodar localmente:
+
+```bash
 vercel dev
 ```
 
-Your Flask application is now available at `http://localhost:3000`.
+---
 
-## One-Click Deploy
+## 📌 Endpoints
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
+### 🔄 `POST /gerar-matriz`
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+Gera a matriz de distância entre todos os pontos cadastrados.
+
+#### 📥 Corpo da requisição
+Sem parâmetros.
+
+#### 🧠 O que faz:
+- Busca todos os pontos de coleta.
+- Para cada par (origem → destino), calcula tempo e distância via Google.
+- Salva no banco a relação `origem_id`, `destino_id`, `distancia_km`, `tempo_min`, `material_estimado_kg`.
+
+---
+
+### 📍 `POST /gerar-rota`
+
+Calcula a melhor rota de coleta com base em:
+
+- Pontos selecionados
+- Capacidade do caminhão
+- Consumo por km
+
+#### 📥 Corpo da requisição
+
+```json
+{
+  "truck_id": "uuid-do-caminhao",
+  "ponto_ids": [
+    "uuid-do-ponto1",
+    "uuid-do-ponto2",
+    "..."
+  ]
+}
+```
+
+#### 📤 Resposta
+
+```json
+{
+  "rota": [
+    {
+      "ponto_id": "uuid",
+      "material_estimado_kg": 1000,
+      "distancia_km": 3.2,
+      "duracao_min": 12,
+      "retorno": false
+    },
+    ...
+  ],
+  "resumo": {
+    "material_total_kg": 4000,
+    "distancia_total_km": 10.5,
+    "tempo_estimado_min": 40,
+    "litros_estimados": 2.5,
+    "custo_estimado_reais": 15.75,
+    "capacidade_utilizada_percent": 80.0,
+    "pontos_nao_visitados": []
+  }
+}
+```
+
+---
+
+## 🛠️ Funcionalidades
+
+- 🔄 Geração da matriz de rotas
+- 📦 Cálculo da rota ideal
+- ⛽ Cálculo de consumo de diesel e custo
+- 📍 Identificação de pontos não visitados por falta de capacidade
+- 🧭 Inclusão explícita do retorno à cooperativa na rota
+
+---
+
+## 🤝 Contribuindo
+
+1. Faça um fork
+2. Crie uma branch: `git checkout -b minha-feature`
+3. Commit: `git commit -m 'Minha feature'`
+4. Push: `git push origin minha-feature`
+5. Abra um Pull Request
+
+---
+
+## 📄 Licença
+
+Este projeto é open-source sob a licença MIT.
+
+---
+
+💚 Feito com propósito: transformar a reciclagem em uma prática mais inteligente, tecnológica e acessível.
