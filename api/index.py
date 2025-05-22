@@ -16,7 +16,10 @@ DB_PORT = os.getenv("port", "5432")
 GOOGLE_API_KEY = os.getenv("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY")
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000"])
+CORS(app, origins=[
+    "http://localhost:3000",
+    "https://cooperzagati.vercel.app"
+])
 
 def get_db_connection():
     return psycopg2.connect(
