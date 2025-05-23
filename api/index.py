@@ -3,6 +3,7 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, jsonify, request
 import requests
+import copy
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -116,6 +117,65 @@ def gerar_matriz():
 DIESEL_PRICE_PER_LITER = 6.14
 COOPER_ID = 'ddc0d879-58ae-499b-b9eb-aad1671dd26c'
 
+def calcular_viagens(ponto_ids, matriz, pontos_dict, capacidade, consumo_lkm):
+    material_restante = {pid: pontos_dict[pid]['capacity_kg'] for pid in ponto_ids}
+    viagens = []
+    ordem = 1
+
+    while any(material_restante[pid] > 0 for pid in ponto_ids):
+        viagem = {
+            "ordem": ordem,
+            "pontos_visitados": [],
+            "distancia_km": 0.0,
+            "duracao_min": 0.0,
+            "retorno": True
+        }
+        atual = COOPER_ID
+        capacidade_restante = capacidade
+
+        while capacidade_restante > 0:
+            melhor_ponto = None
+            melhor_match = None
+            menor_custo = float('inf')
+
+            for pid in ponto_ids:
+                if material_restante[pid] <= 0:
+                    continue
+                match = next((r for r in matriz if r['origem_id'] == atual and r['destino_id'] == pid), None)
+                if match:
+                    estimado = min(material_restante[pid], capacidade_restante)
+                    custo = float(match['distancia_km']) * consumo_lkm
+                    if custo < menor_custo:
+                        menor_custo = custo
+                        melhor_ponto = pid
+                        melhor_match = match
+
+            if melhor_ponto is None:
+                break
+
+            coletado = min(material_restante[melhor_ponto], capacidade_restante)
+            viagem["pontos_visitados"].append({
+                "id": melhor_ponto,
+                "coletado_kg": coletado,
+                "distancia_km": float(melhor_match['distancia_km']),
+                "duracao_min": float(melhor_match['tempo_min'])
+            })
+            viagem["distancia_km"] += float(melhor_match['distancia_km'])
+            viagem["duracao_min"] += float(melhor_match['tempo_min'])
+            capacidade_restante -= coletado
+            material_restante[melhor_ponto] -= coletado
+            atual = melhor_ponto
+
+        retorno = next((r for r in matriz if r['origem_id'] == atual and r['destino_id'] == COOPER_ID), None)
+        if retorno:
+            viagem["distancia_km"] += float(retorno['distancia_km'])
+            viagem["duracao_min"] += float(retorno['tempo_min'])
+
+        viagens.append(viagem)
+        ordem += 1
+
+    return viagens
+
 @app.route('/gerar-rota', methods=['POST'])
 def gerar_rota():
     data = request.get_json()
@@ -128,14 +188,11 @@ def gerar_rota():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # PONTOS
     all_ids = [COOPER_ID] + ponto_ids
     placeholders = ','.join(['%s'] * len(all_ids))
-    cur.execute(f"""
-        SELECT * FROM collection_points
-        WHERE id IN ({placeholders})
-    """, all_ids)
+    cur.execute(f"SELECT * FROM collection_points WHERE id IN ({placeholders})", all_ids)
     pontos = cur.fetchall()
+    pontos_dict = {p['id']: p for p in pontos}
 
     cur.execute(f"""
         SELECT * FROM collection_routes_matrix
@@ -154,79 +211,24 @@ def gerar_rota():
     capacidade = caminhao['capacity_kg']
     consumo_lkm = float(caminhao['liter_per_kilometer'])
 
-    visitados = set()
-    rota = []
+    viagens = calcular_viagens(ponto_ids, matriz, pontos_dict, capacidade, consumo_lkm)
 
-    atual = COOPER_ID
-    peso_total = 0.0
-    distancia_total = 0.0
-    duracao_total = 0.0
-
-    while len(visitados) < len(ponto_ids):
-        destino = None
-        menor_custo = float('inf')
-        melhor_match = None
-
-        for ponto in ponto_ids:
-            if ponto in visitados:
-                continue
-            match = next((r for r in matriz if r['origem_id'] == atual and r['destino_id'] == ponto), None)
-            if match:
-                estimado = float(match['material_estimado_kg'])
-                if peso_total + estimado <= capacidade:
-                    custo_estimado = float(match['distancia_km']) * consumo_lkm
-                    if custo_estimado < menor_custo:
-                        menor_custo = custo_estimado
-                        destino = ponto
-                        melhor_match = match
-
-        if destino and melhor_match:
-            rota.append({
-                "ponto_id": destino,
-                "material_estimado_kg": float(melhor_match['material_estimado_kg']),
-                "distancia_km": float(melhor_match['distancia_km']),
-                "duracao_min": float(melhor_match['tempo_min']),
-                "retorno": False
-            })
-            peso_total += float(melhor_match['material_estimado_kg'])
-            distancia_total += float(melhor_match['distancia_km'])
-            duracao_total += float(melhor_match['tempo_min'])
-            atual = destino
-            visitados.add(destino)
-        else:
-            break
-
-    if not rota:
-        return jsonify({
-            "error": "O caminhão não tem capacidade para coletar material de nenhum dos pontos.",
-            "caminhao_capacidade_kg": capacidade
-        }), 400
-
-    retorno = next((r for r in matriz if r['origem_id'] == atual and r['destino_id'] == COOPER_ID), None)
-    if retorno:
-        rota.append({
-            "ponto_id": COOPER_ID,
-            "material_estimado_kg": 0.0,
-            "distancia_km": float(retorno['distancia_km']),
-            "duracao_min": float(retorno['tempo_min']),
-            "retorno": True
-        })
-        distancia_total += float(retorno['distancia_km'])
-        duracao_total += float(retorno['tempo_min'])
-
-    litros_gastos = distancia_total * consumo_lkm
+    total_material = sum(sum(pv['coletado_kg'] for pv in v['pontos_visitados']) for v in viagens)
+    total_distancia = sum(v['distancia_km'] for v in viagens)
+    total_duracao = sum(v['duracao_min'] for v in viagens)
+    litros_gastos = total_distancia * consumo_lkm
     custo_estimado = litros_gastos * DIESEL_PRICE_PER_LITER
-    nao_visitados = list(set(ponto_ids) - visitados)
 
     return jsonify({
-        "rota": rota,
+        "viagens": viagens,
         "resumo": {
-            "material_total_kg": round(peso_total, 2),
-            "distancia_total_km": round(distancia_total, 2),
-            "tempo_estimado_min": round(duracao_total),
+            "quantidade_viagens": len(viagens),
+            "material_total_kg": round(total_material, 2),
+            "distancia_total_km": round(total_distancia, 2),
+            "tempo_estimado_min": round(total_duracao),
             "litros_estimados": round(litros_gastos, 2),
             "custo_estimado_reais": round(custo_estimado, 2),
-            "capacidade_utilizada_percent": round((peso_total / capacidade) * 100, 1),
-            "pontos_nao_visitados": nao_visitados if nao_visitados else None
+            "capacidade_kg": capacidade,
+            "caminhao_id": truck_id
         }
     })
